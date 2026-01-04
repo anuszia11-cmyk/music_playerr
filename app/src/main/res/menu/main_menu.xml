@@ -1,5 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/action_light_theme"
+        android:title="Light Mode"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_dark_theme"
+        android:title="Dark Mode"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_webview"
+        android:title="Web API Info"
+        app:showAsAction="never" />
+
     <item
         android:id="@+id/menu_logout"
         android:title="Logout"
