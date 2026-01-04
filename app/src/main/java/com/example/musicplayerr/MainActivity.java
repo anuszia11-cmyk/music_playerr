@@ -10,7 +10,9 @@ import android.os.Looper;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -34,19 +36,21 @@ import retrofit2.converter.gson.GsonConverterFactory;
 
 public class MainActivity extends AppCompatActivity {
 
-    // Music Player UI
+    // Music Player UI components
     private MediaPlayer mediaPlayer;
     private SeekBar seekBar;
     private TextView textCurrentTime, textTotalTime;
     private ImageView buttonPlay, buttonPause, buttonStop, buttonLogout;
 
-    // Data UI
+    // API & List components
     private RecyclerView recyclerView;
     private PostAdapter postAdapter;
     private List<post> postList = new ArrayList<>();
+    private ProgressBar loadingSpinner;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
+    // Thread for real-time SeekBar updates
     private final Runnable updateSeekBar = new Runnable() {
         @Override
         public void run() {
@@ -60,12 +64,17 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // Section 1.4: Apply Theme BEFORE super.onCreate
+        // Apply saved theme before view creation to prevent flickering
         ThemeUtils.applyTheme(this);
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // 1. Initialize Music UI
+        initializeUI();
+        setupMediaPlayer();
+        fetchData(); // Step 1: Initialize API Data Fetching
+    }
+
+    private void initializeUI() {
         seekBar = findViewById(R.id.seekBar);
         textCurrentTime = findViewById(R.id.textCurrentTime);
         textTotalTime = findViewById(R.id.textTotalTime);
@@ -74,25 +83,13 @@ public class MainActivity extends AppCompatActivity {
         buttonStop = findViewById(R.id.buttonStop);
         buttonLogout = findViewById(R.id.buttonLogout);
 
-        // 2. Initialize RecyclerView
+        // Setup RecyclerView for API data display
         recyclerView = findViewById(R.id.recyclerView);
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         postAdapter = new PostAdapter(postList);
         recyclerView.setAdapter(postAdapter);
 
-        // 3. Media Player Setup
-        mediaPlayer = MediaPlayer.create(this, R.raw.sound);
-        if (mediaPlayer != null) {
-            mediaPlayer.setOnPreparedListener(mp -> {
-                seekBar.setMax(mp.getDuration());
-                textTotalTime.setText(formatTime(mp.getDuration()));
-            });
-        }
-
-        // 4. Start Fetching Data
-        fetchData();
-
-        // 5. Button Click Listeners
+        // Music Controls
         buttonPlay.setOnClickListener(v -> {
             if (mediaPlayer != null) {
                 mediaPlayer.start();
@@ -106,11 +103,10 @@ public class MainActivity extends AppCompatActivity {
 
         buttonStop.setOnClickListener(v -> {
             if (mediaPlayer != null) {
-                mediaPlayer.stop();
-                mediaPlayer = MediaPlayer.create(this, R.raw.sound);
+                mediaPlayer.pause();
+                mediaPlayer.seekTo(0);
                 seekBar.setProgress(0);
                 textCurrentTime.setText("0:00");
-                textTotalTime.setText(formatTime(mediaPlayer.getDuration()));
             }
         });
 
@@ -119,9 +115,24 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void setupMediaPlayer() {
+        // Loading local raw resource (Ariana Grande - breathin)
+        mediaPlayer = MediaPlayer.create(this, R.raw.sound);
+        if (mediaPlayer != null) {
+            mediaPlayer.setOnPreparedListener(mp -> {
+                seekBar.setMax(mp.getDuration());
+                textTotalTime.setText(formatTime(mp.getDuration()));
+            });
+        }
+    }
+
+    /**
+     * STEP 1: API Data Source Implementation
+     * Uses Retrofit to fetch JSON data and syncs with SQLite for offline persistence.
+     */
     private void fetchData() {
         Retrofit retrofit = new Retrofit.Builder()
-                .baseUrl("https://jsonplaceholder.typicode.com/")
+                .baseUrl("https://jsonplaceholder.typicode.com/") // Central Data URL
                 .addConverterFactory(GsonConverterFactory.create())
                 .build();
 
@@ -131,15 +142,18 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onResponse(Call<List<post>> call, Response<List<post>> response) {
                 if (response.isSuccessful() && response.body() != null) {
-                    Log.d("API_CHECK", "Success! Received " + response.body().size() + " posts.");
+                    Log.d("API_SUCCESS", "Data received: " + response.body().size() + " items.");
+
                     postList.clear();
                     postList.addAll(response.body());
                     postAdapter.notifyDataSetChanged();
 
+                    // Sync API data to Local SQLite Database
                     DatabaseHelper db = new DatabaseHelper(MainActivity.this);
                     for (post p : response.body()) {
                         db.insertData(p.getId(), p.getTitle(), p.getBody());
                     }
+                    Toast.makeText(MainActivity.this, "Feed Updated", Toast.LENGTH_SHORT).show();
                 } else {
                     loadOfflineData();
                 }
@@ -147,6 +161,7 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onFailure(Call<List<post>> call, Throwable t) {
+                Log.e("API_FAILURE", "Network error, switching to local storage.");
                 loadOfflineData();
             }
         });
@@ -159,6 +174,7 @@ public class MainActivity extends AppCompatActivity {
             postList.clear();
             postList.addAll(offlineData);
             postAdapter.notifyDataSetChanged();
+            Toast.makeText(this, "Offline Mode: Loaded from Cache", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -173,23 +189,16 @@ public class MainActivity extends AppCompatActivity {
         int id = item.getItemId();
 
         if (id == R.id.action_light_theme) {
-            // Save Light Theme
             ThemeUtils.saveTheme(this, androidx.appcompat.R.style.Theme_AppCompat_Light_DarkActionBar);
-            // Force Light Mode Resource
             AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO);
             return true;
-
         } else if (id == R.id.action_dark_theme) {
-            // Save Dark Theme
             ThemeUtils.saveTheme(this, androidx.appcompat.R.style.Theme_AppCompat_DayNight_DarkActionBar);
-            // Force Dark Mode Resource
             AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES);
             return true;
-
         } else if (id == R.id.action_webview) {
             startActivity(new Intent(this, WebContentActivity.class));
             return true;
-
         } else if (id == R.id.menu_logout) {
             logoutUser();
             return true;
@@ -210,15 +219,18 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String formatTime(int milliseconds) {
-        long minutes = TimeUnit.MILLISECONDS.toMinutes(milliseconds);
-        long seconds = TimeUnit.MILLISECONDS.toSeconds(milliseconds) % 60;
-        return String.format("%d:%02d", minutes, seconds);
+        return String.format("%d:%02d",
+                TimeUnit.MILLISECONDS.toMinutes(milliseconds),
+                TimeUnit.MILLISECONDS.toSeconds(milliseconds) % 60);
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
         handler.removeCallbacks(updateSeekBar);
-        if (mediaPlayer != null) mediaPlayer.release();
+        if (mediaPlayer != null) {
+            mediaPlayer.release();
+            mediaPlayer = null;
+        }
     }
 }
